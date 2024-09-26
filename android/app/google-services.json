@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "474890634262",
+    "project_id": "download-upload-4e6a2",
+    "storage_bucket": "download-upload-4e6a2.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:474890634262:android:9aa021f374f8203d462137",
+        "android_client_info": {
+          "package_name": "com.example.download_upload_project"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBcr_KuBTWXnMfS3IRhUGri_Iw-IFMmDTE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
