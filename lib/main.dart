@@ -1,20 +1,18 @@
 // main.dart
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:file_picker/file_picker.dart';
-import 'firebase_options.dart';
-import 'dart:io';
+import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'dart:io';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
-  runApp(const MyApp());
+  await Firebase.initializeApp();
+  runApp(MyApp());
 }
 
 class MyApp extends StatelessWidget {
@@ -25,7 +23,7 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'Flutter Firebase Upload/Download',
       theme: ThemeData(primarySwatch: Colors.blue),
-      home: const HomePage(),
+      home: HomePage(),
     );
   }
 }
@@ -34,13 +32,13 @@ class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
   @override
-  _HomePageState createState() => _HomePageState();
+  State<HomePage> createState() => _HomePageState();
 }
 
 class _HomePageState extends State<HomePage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseStorage _storage = FirebaseStorage.instance;
-
+  Dio dio = Dio();
   Future<void> _uploadFile() async {
     FilePickerResult? result = await FilePicker.platform.pickFiles();
 
@@ -48,14 +46,12 @@ class _HomePageState extends State<HomePage> {
       File file = File(result.files.single.path!);
       String fileName = result.files.single.name;
 
-      debugPrint("Path: $file, fileName: $fileName");
-
       try {
         // Upload file to Firebase Storage
         TaskSnapshot uploadTask =
             await _storage.ref('files/$fileName').putFile(file);
         String downloadUrl = await uploadTask.ref.getDownloadURL();
-        debugPrint("uploadTask: $uploadTask, downloadUrl: $downloadUrl");
+
         // Save metadata to Firestore
         await _firestore.collection('files').add({
           'name': fileName,
@@ -64,11 +60,11 @@ class _HomePageState extends State<HomePage> {
         });
 
         ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('File uploaded successfully')));
+            SnackBar(content: Text('File uploaded successfully')));
       } catch (e) {
-        print(e);
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Failed to upload file')));
+        debugPrint("$e");
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Failed to upload file')));
       }
     }
   }
@@ -76,14 +72,14 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Firebase Upload/Download')),
+      appBar: AppBar(title: Text('Firebase Upload/Download')),
       body: StreamBuilder<QuerySnapshot>(
         stream: _firestore
             .collection('files')
             .orderBy('timestamp', descending: true)
             .snapshots(),
         builder: (context, snapshot) {
-          if (!snapshot.hasData) return const CircularProgressIndicator();
+          if (!snapshot.hasData) return CircularProgressIndicator();
 
           return ListView.builder(
             itemCount: snapshot.data!.docs.length,
@@ -92,7 +88,7 @@ class _HomePageState extends State<HomePage> {
               return ListTile(
                 title: Text(doc['name']),
                 trailing: IconButton(
-                  icon: const Icon(Icons.download),
+                  icon: Icon(Icons.download),
                   onPressed: () => _downloadFile(doc['url'], doc['name']),
                 ),
               );
@@ -102,44 +98,47 @@ class _HomePageState extends State<HomePage> {
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: _uploadFile,
-        child: const Icon(Icons.upload_file),
+        child: Icon(Icons.upload_file),
       ),
     );
   }
 
   Future<void> _downloadFile(String url, String fileName) async {
     try {
-      // Obtenez le répertoire local pour stocker le fichier
-      Directory? directory = await getExternalStorageDirectory();
+      // 1. Demander la permission de stockage
+      var status = await Permission.storage.request();
+      if (!status.isGranted) {
+        debugPrint('Permission refusée');
+        return;
+      }
 
-      // Chemin complet du fichier
-      String filePath = '${directory?.path}/$fileName';
+      // 2. Obtenir le chemin du répertoire de téléchargement
+      Directory? downloadDirectory;
+      if (Platform.isAndroid) {
+        downloadDirectory = await getExternalStorageDirectory();
+        // Dossier Downloads pour Android
+        downloadDirectory = Directory('/storage/emulated/0/Download');
+      } else if (Platform.isIOS) {
+        downloadDirectory = await getApplicationDocumentsDirectory();
+      }
 
-      debugPrint("directory: $directory, filePath: $filePath");
+      String savePath = '${downloadDirectory!.path}/$fileName';
 
-      // Utilisation de dio pour télécharger le fichier
-      Dio dio = Dio();
-      await dio.download(url, filePath, onReceiveProgress: (received, total) {
-        if (total != -1) {
-          print('Progress: ${(received / total * 100).toStringAsFixed(0)}%');
-        }
-      });
+      // 3. Lancer le téléchargement avec Dio
+      await dio.download(
+        url,
+        savePath,
+        onReceiveProgress: (received, total) {
+          if (total != -1) {
+            debugPrint(
+                'Progression du téléchargement : ${(received / total * 100).toStringAsFixed(0)}%');
+          }
+        },
+      );
 
-      // Si le téléchargement est réussi, montrez une notification
-      ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Téléchargement de $fileName terminé')));
+      debugPrint('Fichier téléchargé et sauvegardé dans : $savePath');
     } catch (e) {
-      // Si une erreur se produit, montrez une notification
-      debugPrint("Error: $e");
-      ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur lors du téléchargement : $e')));
+      debugPrint('Erreur lors du téléchargement : $e');
     }
   }
-
-  // Future<void> _downloadFile(String url, String fileName) async {
-  //   // Note: In a real app, you'd implement the actual download here.
-  //   // For this example, we'll just show a snackbar.
-  //   ScaffoldMessenger.of(context)
-  //       .showSnackBar(SnackBar(content: Text('Downloading $fileName')));
-  // }
 }
